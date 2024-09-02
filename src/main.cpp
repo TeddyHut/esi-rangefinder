@@ -4,6 +4,8 @@
 #include "avr8-stub.h"
 #include "app_api.h" // only needed with flash breakpoints
 
+#define ARRAY_LEN(a) (sizeof a / sizeof a[0])
+
 using deg_t = int;
 using us_t = uint32_t;
 using tick_t = uint32_t;
@@ -121,8 +123,8 @@ ISR(TIMER1_OVF_vect) {
 
 template <uint8_t avg_buf_len>
 class RangeFinder {
-private:
     using segment_t = unsigned int;
+private:
     static deg_t deg_min, deg_max;
     static deg_t inprogress_measurement_deg;
     static segment_t segment_count;
@@ -237,11 +239,13 @@ void setup() {
     RangeFinder_t::set_degree_range(0, 180);
     RangeFinder_t::set_segment_count(10);
     RangeFinder_t::set_movement_time(100);
-    RangeFinder_t::start();
+    // RangeFinder_t::start();
 }
 
 void loop() {
     timer.tick();
+    RangeFinder_t::update();
+
     static RangeFinder_t::Measurement prev_measurement{0, 0};
     if (RangeFinder_t::most_recent_measurement.deg != prev_measurement.deg) {
         prev_measurement = {RangeFinder_t::most_recent_measurement.deg, RangeFinder_t::most_recent_measurement.pulse_length};
@@ -255,7 +259,47 @@ void loop() {
         Serial.println("At pos");
         reached_pos = 0;
     }
-    RangeFinder_t::update();
+
+    static char buf[64];
+    static int buf_idx = 0;
+    while (Serial.available()) {
+        char c = Serial.read();
+        // Serial.write(c);
+        if (c == '\n' || c == '\r') {
+            if (buf_idx == 0)
+                continue;
+            int in1, in2;
+            if (sscanf(buf, "set_degree_range %d,%d", &in1, &in2) == 2) {
+                // Serial.print("Setting degree range\n");
+                RangeFinder_t::set_degree_range(in1, in2);
+            }
+            else if (sscanf(buf, "set_segment_count %d", &in1) == 1) {
+                // Serial.print("Setting segment count\n");
+                RangeFinder_t::set_segment_count(in1);
+            }
+            else if (sscanf(buf, "set_movement_time %d", &in1) == 1) {
+                // Serial.print("Setting movement time\n");
+                RangeFinder_t::set_movement_time(in1);
+            }
+            else if (strcmp("start", buf) == 0) {
+                // Serial.print("Starting\n");
+                RangeFinder_t::start();
+            }
+            else if (strcmp("stop", buf) == 0) {
+                // Serial.print("Stopping\n");
+                RangeFinder_t::stop();
+            }
+            else {
+                Serial.print("Unknown command\n");
+            }
+            buf_idx = 0;
+        } else {
+            buf[buf_idx++] = c;
+            if (buf_idx == ARRAY_LEN(buf))
+                buf_idx = 0;
+            buf[buf_idx] = '\0';
+        }
+    }
 
     // delay(50);
     // auto v = (static_cast<uint32_t>(analogRead(A0)) * 180) / 1024;
