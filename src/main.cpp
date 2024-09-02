@@ -121,7 +121,7 @@ ISR(TIMER1_OVF_vect) {
     HCSR04::interrupt_timer1_ovf();
 }
 
-template <uint8_t avg_buf_len>
+template <uint8_t avg_buf_max_len>
 class RangeFinder {
     using segment_t = unsigned int;
 private:
@@ -132,7 +132,8 @@ private:
     static int8_t direction;
     // Buffer probably not needed - should be able to create running average without storing previous values - TODO. Then could also be configurable at runtime.
     static tick_t movement_time_ms;
-    volatile static tick_t pulse_length_buf[avg_buf_len];
+    volatile static tick_t pulse_length_buf[avg_buf_max_len];
+    volatile static uint8_t buf_len;
     volatile static uint8_t buf_idx;
     struct ThreadFlags {
         bool schedule_next_position : 1;
@@ -153,18 +154,22 @@ public:
     }
     // Time to wait for servo to move to position before starting measurement
     static void set_movement_time(tick_t time_ms) { movement_time_ms = time_ms; }
+    static void set_avg_buf_len(uint8_t const len) {
+        buf_len = min(len, avg_buf_max_len);
+        buf_idx = 0;
+    }
 
     static void start() {
          HCSR04::falling_callback_fn = [](tick_t const pulse_length) {
             pulse_length_buf[buf_idx++] = pulse_length;
             // Received all pulses for this position
-            if (buf_idx == avg_buf_len) {
+            if (buf_idx == buf_len) {
                 buf_idx = 0;
                 // Calculate average pulse length
-                tick_t avg_pulse_length = 0;
-                for (uint8_t i = 0; i < avg_buf_len; i++)
+                uint64_t avg_pulse_length = 0;
+                for (uint8_t i = 0; i < buf_len; i++)
                     avg_pulse_length += pulse_length_buf[i];
-                avg_pulse_length /= avg_buf_len;
+                avg_pulse_length /= buf_len;
 
                 // Use a temporary non-volatile variable for assignment
                 most_recent_measurement.deg = inprogress_measurement_deg;
@@ -204,30 +209,7 @@ public:
     }
 };
 
-template <uint8_t avg_buf_len>
-deg_t RangeFinder<avg_buf_len>::deg_min = 0;
-template <uint8_t avg_buf_len>
-deg_t RangeFinder<avg_buf_len>::deg_max = 0;
-template <uint8_t avg_buf_len>
-deg_t RangeFinder<avg_buf_len>::inprogress_measurement_deg = 0;
-template <uint8_t avg_buf_len>
-typename RangeFinder<avg_buf_len>::segment_t RangeFinder<avg_buf_len>::segment_count = 0;
-template <uint8_t avg_buf_len>
-typename RangeFinder<avg_buf_len>::segment_t RangeFinder<avg_buf_len>::segment_idx = 0;
-template <uint8_t avg_buf_len>
-int8_t RangeFinder<avg_buf_len>::direction = 1;
-template <uint8_t avg_buf_len>
-tick_t RangeFinder<avg_buf_len>::movement_time_ms = 0;
-template <uint8_t avg_buf_len>
-volatile tick_t RangeFinder<avg_buf_len>::pulse_length_buf[avg_buf_len];
-template <uint8_t avg_buf_len>
-volatile uint8_t RangeFinder<avg_buf_len>::buf_idx = 0;
-template <uint8_t avg_buf_len>
-volatile typename RangeFinder<avg_buf_len>::Measurement RangeFinder<avg_buf_len>::most_recent_measurement;
-template <uint8_t avg_buf_len>
-volatile typename RangeFinder<avg_buf_len>::ThreadFlags RangeFinder<avg_buf_len>::thread_flags;
-
-using RangeFinder_t = RangeFinder<4>;
+using RangeFinder_t = RangeFinder<16>;
 
 void setup() {
     // debug_init();
@@ -239,6 +221,7 @@ void setup() {
     RangeFinder_t::set_degree_range(0, 180);
     RangeFinder_t::set_segment_count(10);
     RangeFinder_t::set_movement_time(100);
+    RangeFinder_t::set_avg_buf_len(4);
     // RangeFinder_t::start();
 }
 
@@ -283,6 +266,10 @@ void loop() {
                 // Serial.print("Setting movement time\n");
                 RangeFinder_t::set_movement_time(in1);
             }
+            else if (sscanf(buf, "set_buffer_len %d", &in1) == 1) {
+                // Serial.print("Setting average buffer length\n");
+                RangeFinder_t::set_avg_buf_len(in1);
+            }
             else if (sscanf(buf, "set_servo_position %d", &in1) == 1 || sscanf(buf, "ssp %d", &in1) == 1) {
                 // Serial.print("Setting servo position\n");
                 servo::set_position(in1);
@@ -316,3 +303,28 @@ void loop() {
     // auto v = (static_cast<uint32_t>(analogRead(A0)) * 180) / 1024;
     // servo::set_position(v);
 }
+
+template <uint8_t avg_buf_max_len>
+deg_t RangeFinder<avg_buf_max_len>::deg_min = 0;
+template <uint8_t avg_buf_max_len>
+deg_t RangeFinder<avg_buf_max_len>::deg_max = 0;
+template <uint8_t avg_buf_max_len>
+deg_t RangeFinder<avg_buf_max_len>::inprogress_measurement_deg = 0;
+template <uint8_t avg_buf_max_len>
+typename RangeFinder<avg_buf_max_len>::segment_t RangeFinder<avg_buf_max_len>::segment_count = 0;
+template <uint8_t avg_buf_max_len>
+typename RangeFinder<avg_buf_max_len>::segment_t RangeFinder<avg_buf_max_len>::segment_idx = 0;
+template <uint8_t avg_buf_max_len>
+int8_t RangeFinder<avg_buf_max_len>::direction = 1;
+template <uint8_t avg_buf_max_len>
+tick_t RangeFinder<avg_buf_max_len>::movement_time_ms = 0;
+template <uint8_t avg_buf_max_len>
+volatile tick_t RangeFinder<avg_buf_max_len>::pulse_length_buf[avg_buf_max_len];
+template <uint8_t avg_buf_max_len>
+volatile uint8_t RangeFinder<avg_buf_max_len>::buf_len = 0;
+template <uint8_t avg_buf_max_len>
+volatile uint8_t RangeFinder<avg_buf_max_len>::buf_idx = 0;
+template <uint8_t avg_buf_max_len>
+volatile typename RangeFinder<avg_buf_max_len>::Measurement RangeFinder<avg_buf_max_len>::most_recent_measurement;
+template <uint8_t avg_buf_max_len>
+volatile typename RangeFinder<avg_buf_max_len>::ThreadFlags RangeFinder<avg_buf_max_len>::thread_flags;
