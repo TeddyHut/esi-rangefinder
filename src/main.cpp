@@ -50,13 +50,13 @@ namespace servo {
     }
 
     void set_position(deg_t const deg) {
-        static constexpr uint16_t pulse_range[] = {400, 2500};
-        static constexpr deg_t degree_range[] = {0, 203};
+        static constexpr uint16_t pulse_range[] = {430, 2500};
+        static constexpr deg_t degree_range[] = {0, 190};
         volatile auto pulse_width_us = (
             static_cast<int32_t>(deg - degree_range[0]) *
             (pulse_range[1] - pulse_range[0])
             ) / (degree_range[1] - degree_range[0]) + pulse_range[0];
-        OCR1B = util::time_to_ticks<uint16_t, uint32_t>(pulse_width_us, TIMER1_PRESCALE, F_CPU, 1000000);
+        OCR1B = util::time_to_ticks<uint16_t, uint64_t>(pulse_width_us, TIMER1_PRESCALE, F_CPU, 1000000);
     }
 }
 
@@ -262,9 +262,11 @@ void loop() {
 
     static char buf[64];
     static int buf_idx = 0;
+    static bool running = false;
     while (Serial.available()) {
         char c = Serial.read();
-        // Serial.write(c);
+        if (!running && (c != '\r'))
+            Serial.write(c);
         if (c == '\n' || c == '\r') {
             if (buf_idx == 0)
                 continue;
@@ -281,13 +283,22 @@ void loop() {
                 // Serial.print("Setting movement time\n");
                 RangeFinder_t::set_movement_time(in1);
             }
+            else if (sscanf(buf, "set_servo_position %d", &in1) == 1 || sscanf(buf, "ssp %d", &in1) == 1) {
+                // Serial.print("Setting servo position\n");
+                servo::set_position(in1);
+            }
+            else if (sscanf(buf, "sst %d", &in1) == 1) {
+                OCR1B = util::time_to_ticks<uint16_t, uint64_t>(in1, TIMER1_PRESCALE, F_CPU, 1000000);
+            }
             else if (strcmp("start", buf) == 0) {
                 // Serial.print("Starting\n");
                 RangeFinder_t::start();
+                running = true;
             }
             else if (strcmp("stop", buf) == 0) {
                 // Serial.print("Stopping\n");
                 RangeFinder_t::stop();
+                running = false;
             }
             else {
                 Serial.print("Unknown command\n");
