@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include "avr8-stub.h"
+#include "app_api.h" // only needed with flash breakpoints
 
 using deg_t = int;
 static constexpr auto TIMER1_PRESCALE = 8;
