@@ -19,6 +19,12 @@ namespace util {
         return static_cast<timer_t>(
             (time_scaled * (cpu_frequency / prescale)) / time_factor);
     }
+
+    template <typename calc_t = uint32_t>
+    constexpr calc_t ticks_to_time(calc_t const ticks, calc_t const prescale = 1, calc_t const cpu_frequency = F_CPU, calc_t const time_factor = 1) {
+        return static_cast<calc_t>(
+            (ticks * time_factor * prescale) / cpu_frequency);
+    }
 }
 
 namespace servo {
@@ -188,7 +194,7 @@ public:
         if (thread_flags.send_pulse) {
             thread_flags.send_pulse = false;
             // Recommends 60ms measurement interval in datasheet
-            timer.in(10UL * 1000UL, [](auto) {
+            timer.in(60UL * 1000UL, [](auto) {
                     HCSR04::send_pulse();
                     return false;
             });
@@ -236,7 +242,15 @@ void setup() {
 
 void loop() {
     timer.tick();
+    static RangeFinder_t::Measurement prev_measurement{0, 0};
+    if (RangeFinder_t::most_recent_measurement.deg != prev_measurement.deg) {
+        prev_measurement = {RangeFinder_t::most_recent_measurement.deg, RangeFinder_t::most_recent_measurement.pulse_length};
+        uint32_t time_us = util::ticks_to_time<uint64_t>(prev_measurement.pulse_length, TIMER1_PRESCALE, F_CPU, 1000000UL);
 
+        Serial.print(prev_measurement.deg);
+        Serial.print(",");
+        Serial.println(time_us);
+    }
     if (reached_pos) {
         Serial.println("At pos");
         reached_pos = 0;
